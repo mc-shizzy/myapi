@@ -1,0 +1,16 @@
+{
+  "name": "moviebox-api",
+  "version": "1.0.0",
+  "description": "MovieBox API — Node.js server (converted from Cloudflare Worker)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
