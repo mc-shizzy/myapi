@@ -1,5 +1,6 @@
 const express = require("express");
 const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const app = express();
 app.set("trust proxy", true);
@@ -267,6 +268,42 @@ async function handleInfo(req, res) {
   return res.json({ status: "success", data: content });
 }
 
+/** Normal when clients seek, close the tab, or CDNs close idle sockets mid-stream — not an app bug. */
+function isBenignStreamError(err) {
+  if (!err) return true;
+  if (err.name === "AbortError") return true;
+  const code = err.code;
+  const msg = String(err.message || "");
+  if (code === "ABORT_ERR" || code === "ERR_STREAM_PREMATURE_CLOSE") return true;
+  if (code === "ECONNRESET" || code === "EPIPE" || code === "ECANCELED") return true;
+  if (msg === "terminated" || /aborted|closed prematurely|socket/i.test(msg)) return true;
+  const c = err.cause;
+  if (c && (c.code === "UND_ERR_SOCKET" || /closed|reset/i.test(String(c.message || "")))) return true;
+  return false;
+}
+
+async function pipeUpstreamBody(req, res, upstreamResponse) {
+  const body = upstreamResponse.body;
+  if (!body) {
+    return res.end();
+  }
+  const readable = Readable.fromWeb(body);
+  const onClientGone = () => readable.destroy();
+  const onResClose = () => {
+    if (!res.writableFinished) onClientGone();
+  };
+  req.once("aborted", onClientGone);
+  res.once("close", onResClose);
+  try {
+    await pipeline(readable, res);
+  } catch (err) {
+    if (!isBenignStreamError(err)) throw err;
+  } finally {
+    req.removeListener("aborted", onClientGone);
+    res.removeListener("close", onResClose);
+  }
+}
+
 async function handleSources(req, res) {
   const movieId = req.params.movieId;
   const workerOrigin = getWorkerOrigin(req);
@@ -336,22 +373,31 @@ async function handleDownload(req, res) {
   if (clientRange) {
     upstreamHeaders["Range"] = clientRange;
   }
-  const upstream = await fetch(downloadUrl, { headers: upstreamHeaders });
-  if (!upstream.ok && upstream.status !== 206) {
-    res.set(CORS_HEADERS);
-    return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+  try {
+    const upstream = await fetch(downloadUrl, { headers: upstreamHeaders });
+    if (!upstream.ok && upstream.status !== 206) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+    }
+    const responseHeaders = { ...CORS_HEADERS };
+    responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "video/mp4";
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) responseHeaders["Content-Length"] = contentLength;
+    responseHeaders["Content-Disposition"] = 'attachment; filename="movie.mp4"';
+    responseHeaders["Accept-Ranges"] = "bytes";
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange) responseHeaders["Content-Range"] = contentRange;
+    res.set(responseHeaders);
+    res.status(upstream.status);
+    await pipeUpstreamBody(req, res, upstream);
+  } catch (err) {
+    if (isBenignStreamError(err)) return;
+    if (!res.headersSent) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: err.message || "Stream failed" });
+    }
+    if (!res.writableEnded) res.destroy();
   }
-  const responseHeaders = { ...CORS_HEADERS };
-  responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "video/mp4";
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) responseHeaders["Content-Length"] = contentLength;
-  responseHeaders["Content-Disposition"] = 'attachment; filename="movie.mp4"';
-  responseHeaders["Accept-Ranges"] = "bytes";
-  const contentRange = upstream.headers.get("content-range");
-  if (contentRange) responseHeaders["Content-Range"] = contentRange;
-  res.set(responseHeaders);
-  res.status(upstream.status);
-  Readable.fromWeb(upstream.body).pipe(res);
 }
 
 async function handleSubtitles(req, res) {
@@ -372,22 +418,31 @@ async function handleSubtitles(req, res) {
   if (clientRange) {
     upstreamHeaders["Range"] = clientRange;
   }
-  const upstream = await fetch(subtitleUrl, { headers: upstreamHeaders });
-  if (!upstream.ok && upstream.status !== 206) {
-    res.set(CORS_HEADERS);
-    return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+  try {
+    const upstream = await fetch(subtitleUrl, { headers: upstreamHeaders });
+    if (!upstream.ok && upstream.status !== 206) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+    }
+    const responseHeaders = { ...CORS_HEADERS };
+    responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "application/x-subrip";
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) responseHeaders["Content-Length"] = contentLength;
+    responseHeaders["Content-Disposition"] = 'attachment; filename="subtitle.srt"';
+    responseHeaders["Accept-Ranges"] = "bytes";
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange) responseHeaders["Content-Range"] = contentRange;
+    res.set(responseHeaders);
+    res.status(upstream.status);
+    await pipeUpstreamBody(req, res, upstream);
+  } catch (err) {
+    if (isBenignStreamError(err)) return;
+    if (!res.headersSent) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: err.message || "Stream failed" });
+    }
+    if (!res.writableEnded) res.destroy();
   }
-  const responseHeaders = { ...CORS_HEADERS };
-  responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "application/x-subrip";
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) responseHeaders["Content-Length"] = contentLength;
-  responseHeaders["Content-Disposition"] = 'attachment; filename="subtitle.srt"';
-  responseHeaders["Accept-Ranges"] = "bytes";
-  const contentRange = upstream.headers.get("content-range");
-  if (contentRange) responseHeaders["Content-Range"] = contentRange;
-  res.set(responseHeaders);
-  res.status(upstream.status);
-  Readable.fromWeb(upstream.body).pipe(res);
 }
 
 function handleRootPage(req, res) {
