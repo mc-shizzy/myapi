@@ -288,6 +288,7 @@ async function pipeUpstreamBody(req, res, upstreamResponse) {
     return res.end();
   }
   const readable = Readable.fromWeb(body);
+  readable.once("error", () => {});
   const onClientGone = () => readable.destroy();
   const onResClose = () => {
     if (!res.writableFinished) onClientGone();
