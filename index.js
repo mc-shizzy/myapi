@@ -128,6 +128,32 @@ function buildHeaders(host, extraHeaders = {}) {
   return headers;
 }
 
+function cleanClientIp(value) {
+  if (!value || typeof value !== "string") return "";
+  const ip = value.split(",")[0].trim();
+  if (!ip) return "";
+  if (ip.startsWith("::ffff:")) return ip.slice(7);
+  if (ip.startsWith("[") && ip.includes("]")) return ip.slice(1, ip.indexOf("]"));
+  return ip;
+}
+
+function getClientIp(req) {
+  const candidates = [
+    req.get("cf-connecting-ip"),
+    req.get("true-client-ip"),
+    Array.isArray(req.ips) && req.ips.length > 0 ? req.ips[0] : "",
+    req.ip,
+    req.get("x-real-ip"),
+    req.get("x-forwarded-for"),
+    req.socket && req.socket.remoteAddress
+  ];
+  for (const candidate of candidates) {
+    const ip = cleanClientIp(candidate);
+    if (ip) return ip;
+  }
+  return "";
+}
+
 function processApiResponse(data) {
   if (data && data.data) return data.data;
   return data;
@@ -223,6 +249,7 @@ async function handleSearch(req, res) {
   const page = parseInt(req.query.page) || 1;
   const perPage = parseInt(req.query.perPage) || 24;
   const subjectType = parseInt(req.query.type) || SubjectType.ALL;
+  const clientIp = getClientIp(req);
   const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/subject/search`, {
     method: "POST",
     body: {
@@ -232,8 +259,8 @@ async function handleSearch(req, res) {
       subjectType
     },
     headers: {
-      "X-Forwarded-For": void 0,
-      "X-Real-IP": void 0
+      "X-Forwarded-For": clientIp || void 0,
+      "X-Real-IP": clientIp || void 0
     }
   });
   let content = processApiResponse(data);
