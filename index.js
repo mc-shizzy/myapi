@@ -57,8 +57,8 @@ const CORS_HEADERS = {
 const APP_CONFIG = {
   latestVersionCode: 3,
   minRequiredVersionCode: 3,
-  maintenanceMode: false,
-  maintenanceMessage: "HandyFlix est en maintenance ! Nous serons de retour tr\u00e8s vite.",
+  maintenanceMode: true,
+  maintenanceMessage: "Our app is currently undergoing maintenance please use our website...",
   updateUrl: "https://freehandyflix.online"
 };
 
