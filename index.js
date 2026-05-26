@@ -84,6 +84,16 @@ function getWorkerOrigin(req) {
 // ─── Simple in-memory cache (replaces Cloudflare caches.default) ─────────────
 
 const memoryCache = new Map();
+const pendingCacheLoads = new Map();
+const MAX_MEMORY_CACHE_ENTRIES = 500;
+
+const CACHE_TTLS = {
+  homepage: 43200,
+  trending: 10800,
+  search: 300,
+  info: 21600,
+  sources: 1800
+};
 
 function cacheGet(key) {
   const entry = memoryCache.get(key);
@@ -96,7 +106,35 @@ function cacheGet(key) {
 }
 
 function cacheSet(key, data, maxAgeSeconds) {
+  if (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES && !memoryCache.has(key)) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey) memoryCache.delete(oldestKey);
+  }
   memoryCache.set(key, { data, expiry: Date.now() + maxAgeSeconds * 1000 });
+}
+
+async function getOrSetCache(key, maxAgeSeconds, loader) {
+  const cached = cacheGet(key);
+  if (cached) return cached;
+  if (pendingCacheLoads.has(key)) return pendingCacheLoads.get(key);
+
+  const pending = Promise.resolve()
+    .then(loader)
+    .then((data) => {
+      cacheSet(key, data, maxAgeSeconds);
+      return data;
+    })
+    .finally(() => pendingCacheLoads.delete(key));
+
+  pendingCacheLoads.set(key, pending);
+  return pending;
+}
+
+function setCachedResponseHeaders(res, maxAgeSeconds, scope = "public") {
+  res.set({
+    ...CORS_HEADERS,
+    "Cache-Control": `${scope}, max-age=${Math.min(maxAgeSeconds, 3600)}, s-maxage=${maxAgeSeconds}, stale-while-revalidate=${Math.min(maxAgeSeconds, 3600)}`
+  });
 }
 
 // ─── Helper functions (kept intact from worker) ─────────────────────────────
@@ -159,17 +197,95 @@ function processApiResponse(data) {
   return data;
 }
 
+const SESSION_COOKIE_TTL_MS = 10 * 60 * 1000;
+const SESSION_COOKIE_FAILURE_TTL_MS = 60 * 1000;
+let sessionCookieCache = { value: "", expiry: 0 };
+let pendingSessionCookie = null;
+
 async function fetchSessionCookie() {
-  try {
+  if (Date.now() < sessionCookieCache.expiry) {
+    return sessionCookieCache.value;
+  }
+  if (pendingSessionCookie) return pendingSessionCookie;
+
+  pendingSessionCookie = (async () => {
     const host = getRandomHost();
     const response = await fetch(
       `https://${host}/wefeed-h5-bff/app/get-latest-app-pkgs?app_name=moviebox`,
       { headers: buildHeaders(host) }
     );
-    return response.headers.get("set-cookie") || "";
-  } catch {
+    const cookie = response.headers.get("set-cookie") || "";
+    sessionCookieCache = {
+      value: cookie,
+      expiry: Date.now() + (cookie ? SESSION_COOKIE_TTL_MS : SESSION_COOKIE_FAILURE_TTL_MS)
+    };
+    return cookie;
+  })().catch(() => {
+    sessionCookieCache = { value: "", expiry: Date.now() + SESSION_COOKIE_FAILURE_TTL_MS };
     return "";
+  }).finally(() => {
+    pendingSessionCookie = null;
+  });
+
+  return pendingSessionCookie;
+}
+
+async function fetchSubjectDetail(movieId) {
+  return getOrSetCache(`info_${movieId}`, CACHE_TTLS.info, async () => {
+    const apiUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`);
+    apiUrl.searchParams.set("subjectId", movieId);
+    const data = await makeApiRequest(apiUrl.toString());
+    const content = processApiResponse(data);
+    addSubjectThumbnail(content);
+    return content;
+  });
+}
+
+function addSubjectThumbnail(content) {
+  if (content && content.subject) {
+    if (content.subject.cover && content.subject.cover.url) {
+      content.subject.thumbnail = content.subject.cover.url;
+    }
+    if (content.subject.stills && content.subject.stills.url && !content.subject.thumbnail) {
+      content.subject.thumbnail = content.subject.stills.url;
+    }
   }
+}
+
+function addItemThumbnails(content) {
+  if (content && content.items) {
+    content.items.forEach((item) => {
+      if (item.cover && item.cover.url) item.thumbnail = item.cover.url;
+      if (item.stills && item.stills.url && !item.thumbnail) item.thumbnail = item.stills.url;
+    });
+  }
+}
+
+function addProcessedMedia(content, workerOrigin) {
+  const payload = { ...content };
+  if (content && content.downloads) {
+    payload.processedSources = content.downloads.map((file) => ({
+      id: file.id,
+      quality: file.resolution || "Unknown",
+      directUrl: file.url,
+      proxyUrl: `${workerOrigin}/api/download/${encodeURIComponent(file.url)}`,
+      size: file.size,
+      format: "mp4"
+    }));
+  }
+  if (content && content.captions && content.captions.length > 0) {
+    payload.processedSubtitles = content.captions.map((cap) => ({
+      id: cap.id,
+      languageCode: cap.lan,
+      languageName: cap.lanName,
+      directUrl: cap.url,
+      proxyUrl: `${workerOrigin}/api/subtitles/${encodeURIComponent(cap.url)}`,
+      size: cap.size,
+      delay: cap.delay || 0,
+      format: "srt"
+    }));
+  }
+  return payload;
 }
 
 async function makeApiRequest(url, options = {}) {
@@ -206,21 +322,16 @@ async function makeApiRequest(url, options = {}) {
 // ─── Route handlers (kept intact from worker, adapted for Express) ──────────
 
 function handleAppConfig(req, res) {
-  res.set({ ...CORS_HEADERS, "Cache-Control": "public, s-maxage=60" });
+  setCachedResponseHeaders(res, 60);
   return res.json(APP_CONFIG);
 }
 
 async function handleApiHomepage(req, res) {
-  const cacheKey = "homepage";
-  const cached = cacheGet(cacheKey);
-  if (cached) {
-    res.set(CORS_HEADERS);
-    return res.json(cached);
-  }
-  const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/home`);
-  const payload = { status: "success", data: processApiResponse(data) };
-  cacheSet(cacheKey, payload, 43200);
-  res.set(CORS_HEADERS);
+  const payload = await getOrSetCache("homepage", CACHE_TTLS.homepage, async () => {
+    const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/home`);
+    return { status: "success", data: processApiResponse(data) };
+  });
+  setCachedResponseHeaders(res, CACHE_TTLS.homepage);
   return res.json(payload);
 }
 
@@ -228,19 +339,15 @@ async function handleTrending(req, res) {
   const page = parseInt(req.query.page) || 0;
   const perPage = parseInt(req.query.perPage) || 18;
   const cacheKey = `trending_${page}_${perPage}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) {
-    res.set(CORS_HEADERS);
-    return res.json(cached);
-  }
-  const apiUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/trending`);
-  apiUrl.searchParams.set("page", page);
-  apiUrl.searchParams.set("perPage", perPage);
-  apiUrl.searchParams.set("uid", "5591179548772780352");
-  const data = await makeApiRequest(apiUrl.toString());
-  const payload = { status: "success", data: processApiResponse(data) };
-  cacheSet(cacheKey, payload, 10800);
-  res.set(CORS_HEADERS);
+  const payload = await getOrSetCache(cacheKey, CACHE_TTLS.trending, async () => {
+    const apiUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/trending`);
+    apiUrl.searchParams.set("page", page);
+    apiUrl.searchParams.set("perPage", perPage);
+    apiUrl.searchParams.set("uid", "5591179548772780352");
+    const data = await makeApiRequest(apiUrl.toString());
+    return { status: "success", data: processApiResponse(data) };
+  });
+  setCachedResponseHeaders(res, CACHE_TTLS.trending);
   return res.json(payload);
 }
 
@@ -250,48 +357,37 @@ async function handleSearch(req, res) {
   const perPage = parseInt(req.query.perPage) || 24;
   const subjectType = parseInt(req.query.type) || SubjectType.ALL;
   const clientIp = getClientIp(req);
-  const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/subject/search`, {
-    method: "POST",
-    body: {
-      keyword: decodeURIComponent(encodedQuery),
-      page,
-      perPage,
-      subjectType
-    },
-    headers: {
-      "X-Forwarded-For": clientIp || void 0,
-      "X-Real-IP": clientIp || void 0
-    }
-  });
-  let content = processApiResponse(data);
-  if (subjectType !== SubjectType.ALL && content.items) {
-    content.items = content.items.filter((item) => item.subjectType === subjectType);
-  }
-  if (content.items) {
-    content.items.forEach((item) => {
-      if (item.cover && item.cover.url) item.thumbnail = item.cover.url;
-      if (item.stills && item.stills.url && !item.thumbnail) item.thumbnail = item.stills.url;
+  const keyword = decodeURIComponent(encodedQuery);
+  const cacheKey = `search_${clientIp || "unknown"}_${keyword.toLowerCase()}_${page}_${perPage}_${subjectType}`;
+  const payload = await getOrSetCache(cacheKey, CACHE_TTLS.search, async () => {
+    const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/subject/search`, {
+      method: "POST",
+      body: {
+        keyword,
+        page,
+        perPage,
+        subjectType
+      },
+      headers: {
+        "X-Forwarded-For": clientIp || void 0,
+        "X-Real-IP": clientIp || void 0
+      }
     });
-  }
-  res.set(CORS_HEADERS);
-  return res.json({ status: "success", data: content });
+    const content = processApiResponse(data);
+    if (subjectType !== SubjectType.ALL && content.items) {
+      content.items = content.items.filter((item) => item.subjectType === subjectType);
+    }
+    addItemThumbnails(content);
+    return { status: "success", data: content };
+  });
+  setCachedResponseHeaders(res, CACHE_TTLS.search, "private");
+  return res.json(payload);
 }
 
 async function handleInfo(req, res) {
   const movieId = req.params.movieId;
-  const apiUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`);
-  apiUrl.searchParams.set("subjectId", movieId);
-  const data = await makeApiRequest(apiUrl.toString());
-  const content = processApiResponse(data);
-  if (content.subject) {
-    if (content.subject.cover && content.subject.cover.url) {
-      content.subject.thumbnail = content.subject.cover.url;
-    }
-    if (content.subject.stills && content.subject.stills.url && !content.subject.thumbnail) {
-      content.subject.thumbnail = content.subject.stills.url;
-    }
-  }
-  res.set(CORS_HEADERS);
+  const content = await fetchSubjectDetail(movieId);
+  setCachedResponseHeaders(res, CACHE_TTLS.info);
   return res.json({ status: "success", data: content });
 }
 
@@ -337,50 +433,28 @@ async function handleSources(req, res) {
   const workerOrigin = getWorkerOrigin(req);
   const season = parseInt(req.query.season) || 0;
   const episode = parseInt(req.query.episode) || 0;
-  const infoUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`);
-  infoUrl.searchParams.set("subjectId", movieId);
-  const infoData = await makeApiRequest(infoUrl.toString());
-  const movieInfo = processApiResponse(infoData);
-  const detailPath = movieInfo?.subject?.detailPath;
-  if (!detailPath) {
-    throw new Error("Could not get movie detail path for Referer header");
-  }
-  const refererUrl = `${FMOVIES_ORIGIN}/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
-  const sourcesUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/download`);
-  sourcesUrl.searchParams.set("subjectId", movieId);
-  sourcesUrl.searchParams.set("se", season);
-  sourcesUrl.searchParams.set("ep", episode);
-  const data = await makeApiRequest(sourcesUrl.toString(), {
-    headers: {
-      "Referer": refererUrl,
-      "Origin": FMOVIES_ORIGIN
+  const cacheKey = `sources_${movieId}_${season}_${episode}`;
+  const content = await getOrSetCache(cacheKey, CACHE_TTLS.sources, async () => {
+    const movieInfo = await fetchSubjectDetail(movieId);
+    const detailPath = movieInfo?.subject?.detailPath;
+    if (!detailPath) {
+      throw new Error("Could not get movie detail path for Referer header");
     }
+    const refererUrl = `${FMOVIES_ORIGIN}/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
+    const sourcesUrl = new URL(`${HOST_URL}/wefeed-h5-bff/web/subject/download`);
+    sourcesUrl.searchParams.set("subjectId", movieId);
+    sourcesUrl.searchParams.set("se", season);
+    sourcesUrl.searchParams.set("ep", episode);
+    const data = await makeApiRequest(sourcesUrl.toString(), {
+      headers: {
+        "Referer": refererUrl,
+        "Origin": FMOVIES_ORIGIN
+      }
+    });
+    return processApiResponse(data);
   });
-  const content = processApiResponse(data);
-  if (content && content.downloads) {
-    content.processedSources = content.downloads.map((file) => ({
-      id: file.id,
-      quality: file.resolution || "Unknown",
-      directUrl: file.url,
-      proxyUrl: `${workerOrigin}/api/download/${encodeURIComponent(file.url)}`,
-      size: file.size,
-      format: "mp4"
-    }));
-  }
-  if (content && content.captions && content.captions.length > 0) {
-    content.processedSubtitles = content.captions.map((cap) => ({
-      id: cap.id,
-      languageCode: cap.lan,
-      languageName: cap.lanName,
-      directUrl: cap.url,
-      proxyUrl: `${workerOrigin}/api/subtitles/${encodeURIComponent(cap.url)}`,
-      size: cap.size,
-      delay: cap.delay || 0,
-      format: "srt"
-    }));
-  }
-  res.set(CORS_HEADERS);
-  return res.json({ status: "success", data: content });
+  setCachedResponseHeaders(res, CACHE_TTLS.sources);
+  return res.json({ status: "success", data: addProcessedMedia(content, workerOrigin) });
 }
 
 async function handleDownload(req, res) {
