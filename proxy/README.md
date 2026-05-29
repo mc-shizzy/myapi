@@ -6,6 +6,18 @@ L’API principale est sur **Cloudflare Workers** — configure `STREAM_PROXY_UR
 
 ## Deploy
 
+### Northflank (apii.freehandyflix.online)
+
+| Setting | Value |
+|---------|--------|
+| **Build context** | `/proxy` |
+| **Dockerfile** (optional) | `/proxy/Dockerfile` |
+| **Start** | `npm start` or `node index.js` |
+
+Env: `PROXY_PUBLIC_URL=https://apii.freehandyflix.online`
+
+**Do not** use repo root — `npm start` there runs the API (`index.js`), not this proxy.
+
 ### Heroku
 
 ```bash

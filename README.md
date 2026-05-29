@@ -34,6 +34,16 @@ Dans Cloudflare → **freehandyflix.online** → **DNS** → Add record :
 
 Ou : Workers → **moviebox-api** → **Settings** → **Domains & Routes** → Add `apiv1.freehandyflix.online`
 
+## Northflank (apii) — stream proxy
+
+**Build context must be `/proxy`** — not the repo root.
+
+See [DEPLOY.md](DEPLOY.md) for full Northflank / Dockerfile steps.
+
+```bash
+curl https://apii.freehandyflix.online/health   # must return status ok
+```
+
 ## Serveur stream (Heroku / Railway / VPS)
 
 Dossier **`proxy/`** — package Node.js autonome :

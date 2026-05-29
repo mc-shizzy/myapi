@@ -530,9 +530,9 @@ function handleRootPage(req, res) {
         <div class="wrapper">
             <div class="hero">
                 <h1>\u{1F3AC} MovieBox API</h1>
-                <p>Stream movies &amp; TV series with full subtitle support, video seeking, and download pause/resume</p>
+                <p>JSON API (search, info, sources). Production: <strong>apiv1.freehandyflix.online</strong> (Cloudflare). Stream/download: <strong>apii.freehandyflix.online</strong> (proxy service).</p>
                 <div class="badge-row">
-                    <span class="badge green">\u2713 8 Endpoints</span>
+                    <span class="badge green">\u2713 API Endpoints</span>
                     <span class="badge blue">\u2713 Video Seeking</span>
                     <span class="badge purple">\u2713 Subtitles</span>
                     <span class="badge green">\u2713 Pause/Resume</span>
