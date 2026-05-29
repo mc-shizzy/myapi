@@ -5,9 +5,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY index.js ./
+COPY proxy-server.js ./
 
 ENV NODE_ENV=production
-EXPOSE 7861
 
-CMD ["node", "index.js"]
+CMD ["node", "proxy-server.js"]

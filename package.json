@@ -1,13 +1,12 @@
 {
-  "name": "moviebox-api",
+  "name": "moviebox-stream-proxy",
   "version": "1.0.0",
-  "description": "MovieBox API — Node.js server (converted from Cloudflare Worker)",
-  "main": "index.js",
+  "description": "MovieBox stream proxy for Northflank (apii) — API JSON is on Cloudflare (apiv1)",
+  "main": "proxy-server.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node proxy-server.js",
     "start:api": "node index.js",
-    "start:proxy": "node proxy-server.js",
-    "dev": "node index.js",
+    "dev": "node proxy-server.js",
     "deploy:worker": "wrangler deploy"
   },
   "dependencies": {
