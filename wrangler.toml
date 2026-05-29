@@ -1,0 +1,16 @@
+name = "moviebox-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+account_id = "a01423c01e1818d109edc395211691a9"
+workers_dev = true
+
+# API principale → https://apiv1.freehandyflix.online
+[[routes]]
+pattern = "apiv1.freehandyflix.online/*"
+zone_name = "freehandyflix.online"
+
+# URL publique du serveur stream (VPS / Heroku) — utilisée dans proxyUrl de /api/sources
+[vars]
+STREAM_PROXY_URL = "https://apii.freehandyflix.online"
+
+# Pour secrets: wrangler secret put STREAM_PROXY_URL

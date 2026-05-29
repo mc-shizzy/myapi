@@ -1,4 +1,6 @@
 const express = require("express");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const app = express();
 app.set("trust proxy", true);
@@ -77,13 +79,6 @@ function getWorkerOrigin(req) {
     proto = "https";
   }
   return `${proto}://${host}`;
-}
-
-/** Base URL for /api/download and /api/subtitles proxy (VPS / Heroku). */
-function getProxyOrigin(req) {
-  const fromEnv = process.env.STREAM_PROXY_URL || process.env.PROXY_ORIGIN;
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
-  return getWorkerOrigin(req);
 }
 
 // ─── Simple in-memory cache (replaces Cloudflare caches.default) ─────────────
@@ -396,9 +391,46 @@ async function handleInfo(req, res) {
   return res.json({ status: "success", data: content });
 }
 
+/** Normal when clients seek, close the tab, or CDNs close idle sockets mid-stream — not an app bug. */
+function isBenignStreamError(err) {
+  if (!err) return true;
+  if (err.name === "AbortError") return true;
+  const code = err.code;
+  const msg = String(err.message || "");
+  if (code === "ABORT_ERR" || code === "ERR_STREAM_PREMATURE_CLOSE") return true;
+  if (code === "ECONNRESET" || code === "EPIPE" || code === "ECANCELED") return true;
+  if (msg === "terminated" || /aborted|closed prematurely|socket/i.test(msg)) return true;
+  const c = err.cause;
+  if (c && (c.code === "UND_ERR_SOCKET" || /closed|reset/i.test(String(c.message || "")))) return true;
+  return false;
+}
+
+async function pipeUpstreamBody(req, res, upstreamResponse) {
+  const body = upstreamResponse.body;
+  if (!body) {
+    return res.end();
+  }
+  const readable = Readable.fromWeb(body);
+  readable.once("error", () => {});
+  const onClientGone = () => readable.destroy();
+  const onResClose = () => {
+    if (!res.writableFinished) onClientGone();
+  };
+  req.once("aborted", onClientGone);
+  res.once("close", onResClose);
+  try {
+    await pipeline(readable, res);
+  } catch (err) {
+    if (!isBenignStreamError(err)) throw err;
+  } finally {
+    req.removeListener("aborted", onClientGone);
+    res.removeListener("close", onResClose);
+  }
+}
+
 async function handleSources(req, res) {
   const movieId = req.params.movieId;
-  const workerOrigin = getProxyOrigin(req);
+  const workerOrigin = getWorkerOrigin(req);
   const season = parseInt(req.query.season) || 0;
   const episode = parseInt(req.query.episode) || 0;
   const cacheKey = `sources_${movieId}_${season}_${episode}`;
@@ -423,6 +455,96 @@ async function handleSources(req, res) {
   });
   setCachedResponseHeaders(res, CACHE_TTLS.sources);
   return res.json({ status: "success", data: addProcessedMedia(content, workerOrigin) });
+}
+
+async function handleDownload(req, res) {
+  const downloadUrl = decodeURIComponent(req.params[0]);
+  if (!downloadUrl || (!downloadUrl.startsWith("https://bcdnxw.hakunaymatata.com/") && !downloadUrl.startsWith("https://valiw.hakunaymatata.com/"))) {
+    res.set(CORS_HEADERS);
+    return res.status(400).json({ status: "error", message: "Invalid download URL" });
+  }
+  const ip = getRandomIP();
+  const upstreamHeaders = {
+    "User-Agent": "okhttp/4.12.0",
+    "Referer": `${FMOVIES_ORIGIN}/`,
+    "Origin": FMOVIES_ORIGIN,
+    "X-Forwarded-For": ip,
+    "X-Real-IP": ip
+  };
+  const clientRange = req.headers["range"];
+  if (clientRange) {
+    upstreamHeaders["Range"] = clientRange;
+  }
+  try {
+    const upstream = await fetch(downloadUrl, { headers: upstreamHeaders });
+    if (!upstream.ok && upstream.status !== 206) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+    }
+    const responseHeaders = { ...CORS_HEADERS };
+    responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "video/mp4";
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) responseHeaders["Content-Length"] = contentLength;
+    responseHeaders["Content-Disposition"] = 'attachment; filename="movie.mp4"';
+    responseHeaders["Accept-Ranges"] = "bytes";
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange) responseHeaders["Content-Range"] = contentRange;
+    res.set(responseHeaders);
+    res.status(upstream.status);
+    await pipeUpstreamBody(req, res, upstream);
+  } catch (err) {
+    if (isBenignStreamError(err)) return;
+    if (!res.headersSent) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: err.message || "Stream failed" });
+    }
+    if (!res.writableEnded) res.destroy();
+  }
+}
+
+async function handleSubtitles(req, res) {
+  const subtitleUrl = decodeURIComponent(req.params[0]);
+  if (!subtitleUrl || !subtitleUrl.startsWith("https://cacdn.hakunaymatata.com/")) {
+    res.set(CORS_HEADERS);
+    return res.status(400).json({ status: "error", message: "Invalid subtitle URL" });
+  }
+  const ip = getRandomIP();
+  const upstreamHeaders = {
+    "User-Agent": "okhttp/4.12.0",
+    "Referer": `${FMOVIES_ORIGIN}/`,
+    "Origin": FMOVIES_ORIGIN,
+    "X-Forwarded-For": ip,
+    "X-Real-IP": ip
+  };
+  const clientRange = req.headers["range"];
+  if (clientRange) {
+    upstreamHeaders["Range"] = clientRange;
+  }
+  try {
+    const upstream = await fetch(subtitleUrl, { headers: upstreamHeaders });
+    if (!upstream.ok && upstream.status !== 206) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: `Upstream responded with ${upstream.status}` });
+    }
+    const responseHeaders = { ...CORS_HEADERS };
+    responseHeaders["Content-Type"] = upstream.headers.get("content-type") || "application/x-subrip";
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) responseHeaders["Content-Length"] = contentLength;
+    responseHeaders["Content-Disposition"] = 'attachment; filename="subtitle.srt"';
+    responseHeaders["Accept-Ranges"] = "bytes";
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange) responseHeaders["Content-Range"] = contentRange;
+    res.set(responseHeaders);
+    res.status(upstream.status);
+    await pipeUpstreamBody(req, res, upstream);
+  } catch (err) {
+    if (isBenignStreamError(err)) return;
+    if (!res.headersSent) {
+      res.set(CORS_HEADERS);
+      return res.status(502).json({ status: "error", message: err.message || "Stream failed" });
+    }
+    if (!res.writableEnded) res.destroy();
+  }
 }
 
 function handleRootPage(req, res) {
@@ -903,6 +1025,8 @@ app.get("/api/trending", asyncHandler(handleTrending));
 app.get("/api/search/:query", asyncHandler(handleSearch));
 app.get("/api/info/:movieId", asyncHandler(handleInfo));
 app.get("/api/sources/:movieId", asyncHandler(handleSources));
+app.get("/api/download/*", asyncHandler(handleDownload));
+app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
 
 // ─── 404 fallback ────────────────────────────────────────────────────────────
 
@@ -934,7 +1058,5 @@ app.use((err, req, res, _next) => {
 // ─── Start server ────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  const proxy = process.env.STREAM_PROXY_URL || process.env.PROXY_ORIGIN || "(same host — use proxy-server.js)";
   console.log(`MovieBox API running on http://localhost:${PORT}`);
-  console.log(`Stream proxy URL: ${proxy}`);
 });

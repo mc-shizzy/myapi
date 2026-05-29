@@ -1,0 +1,6 @@
+node_modules/
+.env
+.wrangler/
+*.log
+.DS_Store
+lib/api-core-temp.cjs

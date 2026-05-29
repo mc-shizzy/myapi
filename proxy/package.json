@@ -1,0 +1,18 @@
+{
+  "name": "moviebox-stream-proxy",
+  "version": "1.0.0",
+  "description": "MovieBox stream & download proxy — deploy on Heroku, Railway, Render, VPS",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "keywords": ["moviebox", "stream", "proxy"],
+  "license": "UNLICENSED"
+}
