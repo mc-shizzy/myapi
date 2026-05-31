@@ -1,8 +1,9 @@
 /**
  * MovieBox stream proxy — Northflank / VPS (apii.freehandyflix.online)
- * Routes: GET /health, /api/download/*, /api/subtitles/*
+ * Routes: GET /health, /api/search/:query, /api/download/*, /api/subtitles/*
  */
 const express = require("express");
+const apiCore = require("./lib/api-handlers.cjs");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
@@ -172,10 +173,26 @@ app.get("/health", (req, res) => {
   return res.json({
     status: "ok",
     service: "moviebox-stream-proxy",
-    publicUrl: process.env.PROXY_PUBLIC_URL || null
+    publicUrl: process.env.PROXY_PUBLIC_URL || null,
+    endpoints: ["GET /api/search/:query", "GET /api/download/*", "GET /api/subtitles/*"]
   });
 });
 
+async function handleSearch(req, res) {
+  const pageParam = parseInt(req.query.page, 10);
+  const page = Number.isFinite(pageParam) ? pageParam : apiCore.SEARCH_DEFAULT_PAGE;
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.SEARCH_DEFAULT_PER_PAGE;
+  const subjectType = parseInt(req.query.type, 10) || apiCore.SubjectType.ALL;
+  const keyword = decodeURIComponent(req.params.query);
+  const payload = await apiCore.search(keyword, page, perPage, subjectType);
+  res.set({
+    ...CORS_HEADERS,
+    "Cache-Control": "private, max-age=300"
+  });
+  return res.json(payload);
+}
+
+app.get("/api/search/:query", asyncHandler(handleSearch));
 app.get("/api/download/*", asyncHandler(handleDownload));
 app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
 
@@ -184,7 +201,12 @@ app.use((req, res) => {
   return res.status(404).json({
     status: "error",
     message: "Endpoint not found",
-    availableEndpoints: ["GET /health", "GET /api/download/*", "GET /api/subtitles/*"]
+    availableEndpoints: [
+      "GET /health",
+      "GET /api/search/:query",
+      "GET /api/download/*",
+      "GET /api/subtitles/*"
+    ]
   });
 });
 

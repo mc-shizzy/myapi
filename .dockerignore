@@ -6,6 +6,5 @@ index.js
 index.js.backup
 worker.js
 wrangler.toml
-lib
 proxy
 *.md

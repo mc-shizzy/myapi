@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY proxy-server.js ./
+COPY lib ./lib
 
 ENV NODE_ENV=production
 

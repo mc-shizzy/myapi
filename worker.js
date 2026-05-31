@@ -63,11 +63,16 @@ export default {
       const searchMatch = url.pathname.match(/^\/api\/search\/(.+)$/);
       if (searchMatch) {
         const keyword = decodeURIComponent(searchMatch[1]);
-        const page = parseInt(url.searchParams.get("page")) || 1;
-        const perPage = parseInt(url.searchParams.get("perPage")) || 24;
-        const subjectType = parseInt(url.searchParams.get("type")) || api.SubjectType.ALL;
-        const clientIp = await api.getClientIpFromHeaders(request.headers);
-        const payload = await api.search(keyword, page, perPage, subjectType, clientIp);
+        const page = parseInt(url.searchParams.get("page"), 10);
+        const perPage = parseInt(url.searchParams.get("perPage"), 10) || 24;
+        const subjectType = parseInt(url.searchParams.get("type"), 10) || api.SubjectType.ALL;
+        const payload = await api.searchViaProxy(
+          proxyOrigin,
+          keyword,
+          Number.isFinite(page) ? page : api.SEARCH_DEFAULT_PAGE,
+          perPage,
+          subjectType
+        );
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.search, "private"));
       }
 

@@ -1,6 +1,6 @@
 /**
  * MovieBox stream / download proxy
- * Routes: GET /health, /api/download/*, /api/subtitles/*
+ * Routes: GET /health, /api/search/:query, /api/download/*, /api/subtitles/*
  *
  * Env:
  *   PORT              — set by platform (Heroku/Railway) or default 7861
@@ -34,6 +34,49 @@ const SPOOFER_IPS = [
 
 function getRandomIP() {
   return SPOOFER_IPS[Math.floor(Math.random() * SPOOFER_IPS.length)];
+}
+
+const API_V2_SEARCH_URL = "https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search";
+const API_V2_HEADERS = {
+  "X-Client-Info": '{"timezone":"Africa/Nairobi"}',
+  "Accept-Language": "en-US,en;q=0.5",
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0",
+  Referer: "https://videodownloader.site/"
+};
+
+async function handleSearch(req, res) {
+  const pageParam = parseInt(req.query.page, 10);
+  const page = Number.isFinite(pageParam) ? pageParam : 1;
+  const perPage = parseInt(req.query.perPage, 10) || 24;
+  const subjectType = parseInt(req.query.type, 10) || 0;
+  const keyword = decodeURIComponent(req.params.query);
+
+  const upstream = await fetch(API_V2_SEARCH_URL, {
+    method: "POST",
+    headers: API_V2_HEADERS,
+    body: JSON.stringify({ keyword, page, perPage, subjectType })
+  });
+  if (!upstream.ok) {
+    res.set(CORS_HEADERS);
+    return res.status(502).json({
+      status: "error",
+      message: `MovieBox v2 HTTP ${upstream.status}: ${upstream.statusText}`
+    });
+  }
+  const raw = await upstream.json();
+  const content = raw.data || raw;
+  if (subjectType !== 0 && content.items) {
+    content.items = content.items.filter((item) => item.subjectType === subjectType);
+  }
+  if (content.items) {
+    content.items.forEach((item) => {
+      if (item.cover && item.cover.url) item.thumbnail = item.cover.url;
+    });
+  }
+  res.set({ ...CORS_HEADERS, "Cache-Control": "private, max-age=300" });
+  return res.json({ status: "success", data: content });
 }
 
 function isBenignStreamError(err) {
@@ -180,6 +223,7 @@ app.get("/health", (req, res) => {
   });
 });
 
+app.get("/api/search/:query", asyncHandler(handleSearch));
 app.get("/api/download/*", asyncHandler(handleDownload));
 app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
 
@@ -188,7 +232,12 @@ app.use((req, res) => {
   return res.status(404).json({
     status: "error",
     message: "Endpoint not found",
-    availableEndpoints: ["GET /health", "GET /api/download/*", "GET /api/subtitles/*"]
+    availableEndpoints: [
+      "GET /health",
+      "GET /api/search/:query",
+      "GET /api/download/*",
+      "GET /api/subtitles/*"
+    ]
   });
 });
 

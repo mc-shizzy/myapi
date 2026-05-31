@@ -1,4 +1,5 @@
 const express = require("express");
+const apiCore = require("./lib/api-handlers.cjs");
 
 const app = express();
 app.set("trust proxy", true);
@@ -358,33 +359,12 @@ async function handleTrending(req, res) {
 
 async function handleSearch(req, res) {
   const encodedQuery = req.params.query;
-  const page = parseInt(req.query.page) || 1;
-  const perPage = parseInt(req.query.perPage) || 24;
-  const subjectType = parseInt(req.query.type) || SubjectType.ALL;
-  const clientIp = getClientIp(req);
+  const pageParam = parseInt(req.query.page, 10);
+  const page = Number.isFinite(pageParam) ? pageParam : apiCore.SEARCH_DEFAULT_PAGE;
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.SEARCH_DEFAULT_PER_PAGE;
+  const subjectType = parseInt(req.query.type, 10) || SubjectType.ALL;
   const keyword = decodeURIComponent(encodedQuery);
-  const cacheKey = `search_${clientIp || "unknown"}_${keyword.toLowerCase()}_${page}_${perPage}_${subjectType}`;
-  const payload = await getOrSetCache(cacheKey, CACHE_TTLS.search, async () => {
-    const data = await makeApiRequest(`${HOST_URL}/wefeed-h5-bff/web/subject/search`, {
-      method: "POST",
-      body: {
-        keyword,
-        page,
-        perPage,
-        subjectType
-      },
-      headers: {
-        "X-Forwarded-For": clientIp || void 0,
-        "X-Real-IP": clientIp || void 0
-      }
-    });
-    const content = processApiResponse(data);
-    if (subjectType !== SubjectType.ALL && content.items) {
-      content.items = content.items.filter((item) => item.subjectType === subjectType);
-    }
-    addItemThumbnails(content);
-    return { status: "success", data: content };
-  });
+  const payload = await apiCore.search(keyword, page, perPage, subjectType);
   setCachedResponseHeaders(res, CACHE_TTLS.search, "private");
   return res.json(payload);
 }
