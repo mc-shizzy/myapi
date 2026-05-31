@@ -1,6 +1,8 @@
 /**
  * MovieBox stream proxy — Northflank / VPS (apii.freehandyflix.online)
- * Routes: GET /health, /api/search/:query, /api/download/*, /api/subtitles/*
+ * Routes: GET /health, /api/search/:query,
+ *   /api/search-suggest/:query, /api/popular-searches, /api/recommend/:movieId,
+ *   /api/download/*, /api/subtitles/*
  */
 const express = require("express");
 const apiCore = require("./lib/api-handlers.cjs");
@@ -174,7 +176,14 @@ app.get("/health", (req, res) => {
     status: "ok",
     service: "moviebox-stream-proxy",
     publicUrl: process.env.PROXY_PUBLIC_URL || null,
-    endpoints: ["GET /api/search/:query", "GET /api/download/*", "GET /api/subtitles/*"]
+    endpoints: [
+      "GET /api/search/:query",
+      "GET /api/search-suggest/:query",
+      "GET /api/popular-searches",
+      "GET /api/recommend/:movieId",
+      "GET /api/download/*",
+      "GET /api/subtitles/*"
+    ]
   });
 });
 
@@ -192,7 +201,33 @@ async function handleSearch(req, res) {
   return res.json(payload);
 }
 
+async function handleSearchSuggest(req, res) {
+  const keyword = decodeURIComponent(req.params.query);
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.SUGGEST_DEFAULT_PER_PAGE;
+  const payload = await apiCore.getSearchSuggest(keyword, perPage);
+  res.set({ ...CORS_HEADERS, "Cache-Control": `private, max-age=${apiCore.CACHE_TTLS.suggest}` });
+  return res.json(payload);
+}
+
+async function handlePopularSearches(req, res) {
+  const payload = await apiCore.getPopularSearches();
+  res.set({ ...CORS_HEADERS, "Cache-Control": `public, max-age=${apiCore.CACHE_TTLS.popular}` });
+  return res.json(payload);
+}
+
+async function handleRecommend(req, res) {
+  const pageParam = parseInt(req.query.page, 10);
+  const page = Number.isFinite(pageParam) ? pageParam : apiCore.SEARCH_DEFAULT_PAGE;
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.RECOMMEND_DEFAULT_PER_PAGE;
+  const payload = await apiCore.getRecommend(req.params.movieId, page, perPage);
+  res.set({ ...CORS_HEADERS, "Cache-Control": `public, max-age=${apiCore.CACHE_TTLS.recommend}` });
+  return res.json(payload);
+}
+
 app.get("/api/search/:query", asyncHandler(handleSearch));
+app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
+app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
+app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
 app.get("/api/download/*", asyncHandler(handleDownload));
 app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
 
@@ -204,6 +239,9 @@ app.use((req, res) => {
     availableEndpoints: [
       "GET /health",
       "GET /api/search/:query",
+      "GET /api/search-suggest/:query",
+      "GET /api/popular-searches",
+      "GET /api/recommend/:movieId",
       "GET /api/download/*",
       "GET /api/subtitles/*"
     ]

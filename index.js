@@ -370,10 +370,32 @@ async function handleSearch(req, res) {
 }
 
 async function handleInfo(req, res) {
-  const movieId = req.params.movieId;
-  const content = await fetchSubjectDetail(movieId);
-  setCachedResponseHeaders(res, CACHE_TTLS.info);
-  return res.json({ status: "success", data: content });
+  const payload = await apiCore.getInfo(req.params.movieId);
+  setCachedResponseHeaders(res, apiCore.CACHE_TTLS.info);
+  return res.json(payload);
+}
+
+async function handleSearchSuggest(req, res) {
+  const keyword = decodeURIComponent(req.params.query);
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.SUGGEST_DEFAULT_PER_PAGE;
+  const payload = await apiCore.getSearchSuggest(keyword, perPage);
+  setCachedResponseHeaders(res, apiCore.CACHE_TTLS.suggest, "private");
+  return res.json(payload);
+}
+
+async function handlePopularSearches(req, res) {
+  const payload = await apiCore.getPopularSearches();
+  setCachedResponseHeaders(res, apiCore.CACHE_TTLS.popular);
+  return res.json(payload);
+}
+
+async function handleRecommend(req, res) {
+  const pageParam = parseInt(req.query.page, 10);
+  const page = Number.isFinite(pageParam) ? pageParam : apiCore.SEARCH_DEFAULT_PAGE;
+  const perPage = parseInt(req.query.perPage, 10) || apiCore.RECOMMEND_DEFAULT_PER_PAGE;
+  const payload = await apiCore.getRecommend(req.params.movieId, page, perPage);
+  setCachedResponseHeaders(res, apiCore.CACHE_TTLS.recommend);
+  return res.json(payload);
 }
 
 async function handleSources(req, res) {
@@ -383,7 +405,7 @@ async function handleSources(req, res) {
   const episode = parseInt(req.query.episode) || 0;
   const cacheKey = `sources_${movieId}_${season}_${episode}`;
   const content = await getOrSetCache(cacheKey, CACHE_TTLS.sources, async () => {
-    const movieInfo = await fetchSubjectDetail(movieId);
+    const movieInfo = await apiCore.fetchSubjectDetail(movieId);
     const detailPath = movieInfo?.subject?.detailPath;
     if (!detailPath) {
       throw new Error("Could not get movie detail path for Referer header");
@@ -882,6 +904,9 @@ app.get("/api/homepage", asyncHandler(handleApiHomepage));
 app.get("/api/trending", asyncHandler(handleTrending));
 app.get("/api/search/:query", asyncHandler(handleSearch));
 app.get("/api/info/:movieId", asyncHandler(handleInfo));
+app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
+app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
+app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
 app.get("/api/sources/:movieId", asyncHandler(handleSources));
 
 // ─── 404 fallback ────────────────────────────────────────────────────────────
@@ -897,6 +922,9 @@ app.use((req, res) => {
       "GET /api/trending",
       "GET /api/search/:query",
       "GET /api/info/:movieId",
+      "GET /api/search-suggest/:query",
+      "GET /api/popular-searches",
+      "GET /api/recommend/:movieId",
       "GET /api/sources/:movieId",
       "GET /api/download/*",
       "GET /api/subtitles/*"

@@ -82,6 +82,33 @@ export default {
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.info));
       }
 
+      const suggestMatch = url.pathname.match(/^\/api\/search-suggest\/(.+)$/);
+      if (suggestMatch) {
+        const keyword = decodeURIComponent(suggestMatch[1]);
+        const perPage = parseInt(url.searchParams.get("perPage"), 10) || api.SUGGEST_DEFAULT_PER_PAGE;
+        const payload = await api.apiViaProxy(proxyOrigin, `/api/search-suggest/${encodeURIComponent(keyword)}`, {
+          perPage: String(perPage)
+        });
+        return json(payload, 200, cacheHeaders(api.CACHE_TTLS.suggest, "private"));
+      }
+
+      if (url.pathname === "/api/popular-searches") {
+        const payload = await api.apiViaProxy(proxyOrigin, "/api/popular-searches");
+        return json(payload, 200, cacheHeaders(api.CACHE_TTLS.popular));
+      }
+
+      const recommendMatch = url.pathname.match(/^\/api\/recommend\/([^/]+)$/);
+      if (recommendMatch) {
+        const pageParam = parseInt(url.searchParams.get("page"), 10);
+        const page = Number.isFinite(pageParam) ? pageParam : api.SEARCH_DEFAULT_PAGE;
+        const perPage = parseInt(url.searchParams.get("perPage"), 10) || api.RECOMMEND_DEFAULT_PER_PAGE;
+        const payload = await api.apiViaProxy(proxyOrigin, `/api/recommend/${recommendMatch[1]}`, {
+          page: String(page),
+          perPage: String(perPage)
+        });
+        return json(payload, 200, cacheHeaders(api.CACHE_TTLS.recommend));
+      }
+
       const sourcesPath = url.pathname.match(/^\/api\/sources\/([^/]+)$/);
       if (sourcesPath) {
         const season = parseInt(url.searchParams.get("season")) || 0;
@@ -101,6 +128,9 @@ export default {
             "GET /api/trending",
             "GET /api/search/:query",
             "GET /api/info/:movieId",
+            "GET /api/search-suggest/:query",
+            "GET /api/popular-searches",
+            "GET /api/recommend/:movieId",
             "GET /api/sources/:movieId"
           ],
           streamProxy: proxyOrigin
@@ -122,7 +152,8 @@ a{color:#58a6ff}code{background:#161b22;padding:2px 6px;border-radius:4px}</styl
 <body>
 <h1>MovieBox API</h1>
 <p>API principale: <strong>https://apiv1.freehandyflix.online</strong> (Cloudflare). Stream / download sur serveur séparé.</p>
-<p><strong>Stream proxy:</strong> <code>${streamProxyUrl}</code></p>
+<p><strong>Stream proxy (apii):</strong> <code>${streamProxyUrl}</code></p>
+<p>Nouveaux endpoints v2 (suggest, popular, recommend) sur <strong>apii</strong>. Info reste sur apiv1 (v1).</p>
 <h2>Endpoints</h2>
 <ul>
 <li><code>GET /api/config</code></li>
@@ -130,6 +161,9 @@ a{color:#58a6ff}code{background:#161b22;padding:2px 6px;border-radius:4px}</styl
 <li><code>GET /api/trending</code></li>
 <li><code>GET /api/search/:query</code></li>
 <li><code>GET /api/info/:movieId</code></li>
+<li><code>GET /api/search-suggest/:query</code></li>
+<li><code>GET /api/popular-searches</code></li>
+<li><code>GET /api/recommend/:movieId</code></li>
 <li><code>GET /api/sources/:movieId</code> — <code>proxyUrl</code> pointe vers le stream proxy</li>
 </ul>
 <p>Documentation complète: déployer <code>index.js</code> en Node ou voir <code>index.js.backup</code>.</p>
