@@ -78,7 +78,7 @@ export default {
 
       const infoMatch = url.pathname.match(/^\/api\/info\/([^/]+)$/);
       if (infoMatch) {
-        const payload = await api.getInfo(infoMatch[1]);
+        const payload = await api.apiViaProxy(proxyOrigin, `/api/info/${infoMatch[1]}`);
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.info));
       }
 
@@ -153,7 +153,7 @@ a{color:#58a6ff}code{background:#161b22;padding:2px 6px;border-radius:4px}</styl
 <h1>MovieBox API</h1>
 <p>API principale: <strong>https://apiv1.freehandyflix.online</strong> (Cloudflare). Stream / download sur serveur séparé.</p>
 <p><strong>Stream proxy (apii):</strong> <code>${streamProxyUrl}</code></p>
-<p>Nouveaux endpoints v2 (suggest, popular, recommend) sur <strong>apii</strong>. Info reste sur apiv1 (v1).</p>
+<p>Info v2 sur <strong>apiv1</strong> (proxy via apii). Suggest, popular, recommend sur apii.</p>
 <h2>Endpoints</h2>
 <ul>
 <li><code>GET /api/config</code></li>

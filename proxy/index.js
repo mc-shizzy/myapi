@@ -1,6 +1,6 @@
 /**
  * MovieBox stream / download proxy
- * Routes: GET /health, /api/search/:query,
+ * Routes: GET /health, /api/search/:query, /api/info/:movieId,
  *   /api/search-suggest/:query, /api/popular-searches, /api/recommend/:movieId,
  *   /api/download/*, /api/subtitles/*
  *
@@ -180,6 +180,12 @@ async function handleSearch(req, res) {
   return res.json(payload);
 }
 
+async function handleInfo(req, res) {
+  const payload = await apiCore.getInfo(req.params.movieId);
+  res.set({ ...CORS_HEADERS, "Cache-Control": `public, max-age=${apiCore.CACHE_TTLS.info}` });
+  return res.json(payload);
+}
+
 async function handleSearchSuggest(req, res) {
   const keyword = decodeURIComponent(req.params.query);
   const perPage = parseInt(req.query.perPage, 10) || apiCore.SUGGEST_DEFAULT_PER_PAGE;
@@ -216,6 +222,7 @@ app.get("/health", (req, res) => {
     publicUrl: process.env.PROXY_PUBLIC_URL || null,
     endpoints: [
       "GET /api/search/:query",
+      "GET /api/info/:movieId",
       "GET /api/search-suggest/:query",
       "GET /api/popular-searches",
       "GET /api/recommend/:movieId",
@@ -226,6 +233,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/api/search/:query", asyncHandler(handleSearch));
+app.get("/api/info/:movieId", asyncHandler(handleInfo));
 app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
 app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
 app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
@@ -240,6 +248,7 @@ app.use((req, res) => {
     availableEndpoints: [
       "GET /health",
       "GET /api/search/:query",
+      "GET /api/info/:movieId",
       "GET /api/search-suggest/:query",
       "GET /api/popular-searches",
       "GET /api/recommend/:movieId",
