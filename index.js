@@ -903,11 +903,9 @@ app.get("/api/config", handleAppConfig);
 app.get("/api/homepage", asyncHandler(handleApiHomepage));
 app.get("/api/trending", asyncHandler(handleTrending));
 app.get("/api/search/:query", asyncHandler(handleSearch));
-app.get("/api/info/:movieId", asyncHandler(handleInfo));
 app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
 app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
 app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
-app.get("/api/sources/:movieId", asyncHandler(handleSources));
 
 // ─── 404 fallback ────────────────────────────────────────────────────────────
 
@@ -921,11 +919,9 @@ app.use((req, res) => {
       "GET /api/homepage",
       "GET /api/trending",
       "GET /api/search/:query",
-      "GET /api/info/:movieId",
       "GET /api/search-suggest/:query",
       "GET /api/popular-searches",
       "GET /api/recommend/:movieId",
-      "GET /api/sources/:movieId",
       "GET /api/download/*",
       "GET /api/subtitles/*"
     ]

@@ -1,8 +1,8 @@
 /**
  * MovieBox stream proxy — Northflank / VPS (apii.freehandyflix.online)
  * Routes: GET /health, /api/search/:query, /api/info/:movieId,
- *   /api/search-suggest/:query, /api/popular-searches, /api/recommend/:movieId,
- *   /api/download/*, /api/subtitles/*
+ *   /api/sources/:movieId, /api/search-suggest/:query, /api/popular-searches,
+ *   /api/recommend/:movieId, /api/download/*, /api/subtitles/*
  */
 const express = require("express");
 const apiCore = require("./lib/api-handlers.cjs");
@@ -159,6 +159,15 @@ async function handleSubtitles(req, res) {
   }
 }
 
+function getProxyOrigin(req) {
+  const fromEnv = process.env.PROXY_PUBLIC_URL || process.env.STREAM_PROXY_URL || process.env.PROXY_ORIGIN;
+  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  const host = req.get("host") || "localhost";
+  let proto = (req.get("x-forwarded-proto") || "https").split(",")[0].trim().replace(/:$/, "");
+  if (proto === "http" && !/^(localhost|127\.)/.test(host)) proto = "https";
+  return `${proto}://${host}`;
+}
+
 function asyncHandler(fn) {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -179,6 +188,7 @@ app.get("/health", (req, res) => {
     endpoints: [
       "GET /api/search/:query",
       "GET /api/info/:movieId",
+      "GET /api/sources/:movieId",
       "GET /api/search-suggest/:query",
       "GET /api/popular-searches",
       "GET /api/recommend/:movieId",
@@ -231,11 +241,22 @@ async function handleRecommend(req, res) {
   return res.json(payload);
 }
 
+async function handleSources(req, res) {
+  const movieId = req.params.movieId;
+  const season = parseInt(req.query.season, 10) || 0;
+  const episode = parseInt(req.query.episode, 10) || 0;
+  const proxyOrigin = getProxyOrigin(req);
+  const payload = await apiCore.getSources(movieId, season, episode, proxyOrigin);
+  res.set({ ...CORS_HEADERS, "Cache-Control": `public, max-age=${apiCore.CACHE_TTLS.sources}` });
+  return res.json(payload);
+}
+
 app.get("/api/search/:query", asyncHandler(handleSearch));
 app.get("/api/info/:movieId", asyncHandler(handleInfo));
 app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
 app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
 app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
+app.get("/api/sources/:movieId", asyncHandler(handleSources));
 app.get("/api/download/*", asyncHandler(handleDownload));
 app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
 
@@ -248,6 +269,7 @@ app.use((req, res) => {
       "GET /health",
       "GET /api/search/:query",
       "GET /api/info/:movieId",
+      "GET /api/sources/:movieId",
       "GET /api/search-suggest/:query",
       "GET /api/popular-searches",
       "GET /api/recommend/:movieId",

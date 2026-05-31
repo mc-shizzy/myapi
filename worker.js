@@ -1,6 +1,6 @@
 /**
- * Cloudflare Worker — main MovieBox API (no stream/download proxy).
- * Stream URLs in /api/sources point to STREAM_PROXY_URL (VPS / Heroku).
+ * Cloudflare Worker — main MovieBox API (homepage, trending, search).
+ * Info, sources, suggest, popular, recommend, download/subtitles → apii.
  */
 import * as api from "./lib/api-handlers.cjs";
 
@@ -76,12 +76,6 @@ export default {
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.search, "private"));
       }
 
-      const infoMatch = url.pathname.match(/^\/api\/info\/([^/]+)$/);
-      if (infoMatch) {
-        const payload = await api.apiViaProxy(proxyOrigin, `/api/info/${infoMatch[1]}`);
-        return json(payload, 200, cacheHeaders(api.CACHE_TTLS.info));
-      }
-
       const suggestMatch = url.pathname.match(/^\/api\/search-suggest\/(.+)$/);
       if (suggestMatch) {
         const keyword = decodeURIComponent(suggestMatch[1]);
@@ -109,14 +103,6 @@ export default {
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.recommend));
       }
 
-      const sourcesPath = url.pathname.match(/^\/api\/sources\/([^/]+)$/);
-      if (sourcesPath) {
-        const season = parseInt(url.searchParams.get("season")) || 0;
-        const episode = parseInt(url.searchParams.get("episode")) || 0;
-        const payload = await api.getSources(sourcesPath[1], season, episode, proxyOrigin);
-        return json(payload, 200, cacheHeaders(api.CACHE_TTLS.sources));
-      }
-
       return json(
         {
           status: "error",
@@ -127,11 +113,9 @@ export default {
             "GET /api/homepage",
             "GET /api/trending",
             "GET /api/search/:query",
-            "GET /api/info/:movieId",
             "GET /api/search-suggest/:query",
             "GET /api/popular-searches",
-            "GET /api/recommend/:movieId",
-            "GET /api/sources/:movieId"
+            "GET /api/recommend/:movieId"
           ],
           streamProxy: proxyOrigin
         },
@@ -153,18 +137,23 @@ a{color:#58a6ff}code{background:#161b22;padding:2px 6px;border-radius:4px}</styl
 <h1>MovieBox API</h1>
 <p>API principale: <strong>https://apiv1.freehandyflix.online</strong> (Cloudflare). Stream / download sur serveur séparé.</p>
 <p><strong>Stream proxy (apii):</strong> <code>${streamProxyUrl}</code></p>
-<p>Info v2 sur <strong>apiv1</strong> (proxy via apii). Suggest, popular, recommend sur apii.</p>
-<h2>Endpoints</h2>
+<p>Info, sources, suggest, popular, recommend, download/subtitles sur <strong>apii</strong> (<code>${streamProxyUrl}</code>).</p>
+<h2>Endpoints (apiv1)</h2>
 <ul>
 <li><code>GET /api/config</code></li>
 <li><code>GET /api/homepage</code></li>
 <li><code>GET /api/trending</code></li>
 <li><code>GET /api/search/:query</code></li>
+</ul>
+<h2>Endpoints (apii)</h2>
+<ul>
 <li><code>GET /api/info/:movieId</code></li>
+<li><code>GET /api/sources/:movieId</code> — <code>proxyUrl</code> pour stream/download</li>
 <li><code>GET /api/search-suggest/:query</code></li>
 <li><code>GET /api/popular-searches</code></li>
 <li><code>GET /api/recommend/:movieId</code></li>
-<li><code>GET /api/sources/:movieId</code> — <code>proxyUrl</code> pointe vers le stream proxy</li>
+<li><code>GET /api/download/*</code></li>
+<li><code>GET /api/subtitles/*</code></li>
 </ul>
 <p>Documentation complète: déployer <code>index.js</code> en Node ou voir <code>index.js.backup</code>.</p>
 </body></html>`;
