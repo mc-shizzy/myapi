@@ -53,6 +53,7 @@ export default {
     }
 
     const proxyOrigin = api.getProxyOriginFromEnv(env, request.url);
+    const proxyOpts = { apiKey: env.API_KEY };
 
     try {
       if (url.pathname === "/" || url.pathname === "") {
@@ -88,7 +89,8 @@ export default {
           keyword,
           Number.isFinite(page) ? page : api.SEARCH_DEFAULT_PAGE,
           perPage,
-          subjectType
+          subjectType,
+          proxyOpts
         );
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.search, "private"));
       }
@@ -97,14 +99,17 @@ export default {
       if (suggestMatch) {
         const keyword = decodeURIComponent(suggestMatch[1]);
         const perPage = parseInt(url.searchParams.get("perPage"), 10) || api.SUGGEST_DEFAULT_PER_PAGE;
-        const payload = await api.apiViaProxy(proxyOrigin, `/api/search-suggest/${encodeURIComponent(keyword)}`, {
-          perPage: String(perPage)
-        });
+        const payload = await api.apiViaProxy(
+          proxyOrigin,
+          `/api/search-suggest/${encodeURIComponent(keyword)}`,
+          { perPage: String(perPage) },
+          proxyOpts
+        );
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.suggest, "private"));
       }
 
       if (url.pathname === "/api/popular-searches") {
-        const payload = await api.apiViaProxy(proxyOrigin, "/api/popular-searches");
+        const payload = await api.apiViaProxy(proxyOrigin, "/api/popular-searches", {}, proxyOpts);
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.popular));
       }
 
@@ -113,10 +118,12 @@ export default {
         const pageParam = parseInt(url.searchParams.get("page"), 10);
         const page = Number.isFinite(pageParam) ? pageParam : api.SEARCH_DEFAULT_PAGE;
         const perPage = parseInt(url.searchParams.get("perPage"), 10) || api.RECOMMEND_DEFAULT_PER_PAGE;
-        const payload = await api.apiViaProxy(proxyOrigin, `/api/recommend/${recommendMatch[1]}`, {
-          page: String(page),
-          perPage: String(perPage)
-        });
+        const payload = await api.apiViaProxy(
+          proxyOrigin,
+          `/api/recommend/${recommendMatch[1]}`,
+          { page: String(page), perPage: String(perPage) },
+          proxyOpts
+        );
         return json(payload, 200, cacheHeaders(api.CACHE_TTLS.recommend));
       }
 

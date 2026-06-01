@@ -7,6 +7,7 @@
 const express = require("express");
 const apiCore = require("./lib/api-handlers.cjs");
 const { createLimiter } = require("./lib/express-rate-limit.cjs");
+const { requireApiKeyExpressMiddleware } = require("./lib/api-auth.cjs");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
@@ -19,7 +20,8 @@ const FMOVIES_ORIGIN = "https://fmoviesunblocked.net";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization, Range"
+  "Access-Control-Allow-Headers":
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Api-Key, Range"
 };
 
 const limitStream = createLimiter("stream", CORS_HEADERS);
@@ -184,6 +186,8 @@ app.options("*", (req, res) => {
   res.set(CORS_HEADERS);
   return res.sendStatus(200);
 });
+
+app.use(requireApiKeyExpressMiddleware(CORS_HEADERS));
 
 app.get("/health", (req, res) => {
   res.set(CORS_HEADERS);

@@ -1,6 +1,7 @@
 name = "moviebox-api"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 account_id = "a01423c01e1818d109edc395211691a9"
 workers_dev = true
 
