@@ -175,8 +175,12 @@ function getProxyOrigin(req) {
   const fromEnv = process.env.PROXY_PUBLIC_URL || process.env.STREAM_PROXY_URL || process.env.PROXY_ORIGIN;
   if (fromEnv) return String(fromEnv).replace(/\/$/, "");
   const host = req.get("host") || "localhost";
-  let proto = (req.get("x-forwarded-proto") || "https").split(",")[0].trim().replace(/:$/, "");
-  if (proto === "http" && !/^(localhost|127\.)/.test(host)) proto = "https";
+  let proto = (req.get("x-forwarded-proto") || "").split(",")[0].trim().replace(/:$/, "");
+  if (!proto) {
+    proto = /^(localhost|127\.)/.test(host) ? "http" : "https";
+  } else if (proto === "http" && !/^(localhost|127\.)/.test(host)) {
+    proto = "https";
+  }
   return `${proto}://${host}`;
 }
 
