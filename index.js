@@ -1,5 +1,6 @@
 const express = require("express");
 const apiCore = require("./lib/api-handlers.cjs");
+const { createLimiter } = require("./lib/express-rate-limit.cjs");
 
 const app = express();
 app.set("trust proxy", true);
@@ -52,6 +53,11 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization"
 };
+
+const limitBrowse = createLimiter("browse", CORS_HEADERS);
+const limitSearch = createLimiter("search", CORS_HEADERS);
+const limitSuggest = createLimiter("suggest", CORS_HEADERS);
+const limitMeta = createLimiter("meta", CORS_HEADERS);
 
 const APP_CONFIG = {
   latestVersionCode: 3,
@@ -899,13 +905,13 @@ function asyncHandler(fn) {
 // ─── Routes (same paths as the Worker) ───────────────────────────────────────
 
 app.get("/", handleRootPage);
-app.get("/api/config", handleAppConfig);
-app.get("/api/homepage", asyncHandler(handleApiHomepage));
-app.get("/api/trending", asyncHandler(handleTrending));
-app.get("/api/search/:query", asyncHandler(handleSearch));
-app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
-app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
-app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
+app.get("/api/config", limitBrowse, handleAppConfig);
+app.get("/api/homepage", limitBrowse, asyncHandler(handleApiHomepage));
+app.get("/api/trending", limitBrowse, asyncHandler(handleTrending));
+app.get("/api/search/:query", limitSearch, asyncHandler(handleSearch));
+app.get("/api/search-suggest/:query", limitSuggest, asyncHandler(handleSearchSuggest));
+app.get("/api/popular-searches", limitMeta, asyncHandler(handlePopularSearches));
+app.get("/api/recommend/:movieId", limitMeta, asyncHandler(handleRecommend));
 
 // ─── 404 fallback ────────────────────────────────────────────────────────────
 

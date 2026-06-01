@@ -3,6 +3,11 @@
  * Info, sources, suggest, popular, recommend, download/subtitles → apii.
  */
 import * as api from "./lib/api-handlers.cjs";
+import {
+  checkRateLimit,
+  getRateLimitBucket,
+  RATE_LIMIT_MESSAGE
+} from "./lib/rate-limit.cjs";
 
 const JSON_HEADERS = {
   ...api.CORS_HEADERS,
@@ -33,6 +38,18 @@ export default {
 
     if (request.method !== "GET") {
       return json({ status: "error", message: "Method not allowed" }, 405);
+    }
+
+    const bucket = getRateLimitBucket(url.pathname);
+    if (bucket) {
+      const rl = await checkRateLimit(request, bucket);
+      if (!rl.allowed) {
+        return json(
+          { status: "error", message: RATE_LIMIT_MESSAGE },
+          429,
+          { "Retry-After": String(rl.retryAfter || 60) }
+        );
+      }
     }
 
     const proxyOrigin = api.getProxyOriginFromEnv(env, request.url);

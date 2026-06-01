@@ -10,6 +10,7 @@
  */
 const express = require("express");
 const apiCore = require("../lib/api-handlers.cjs");
+const { createLimiter } = require("../lib/express-rate-limit.cjs");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
@@ -24,6 +25,11 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization, Range"
 };
+
+const limitStream = createLimiter("stream", CORS_HEADERS);
+const limitSearch = createLimiter("search", CORS_HEADERS);
+const limitSuggest = createLimiter("suggest", CORS_HEADERS);
+const limitMeta = createLimiter("meta", CORS_HEADERS);
 
 const SPOOFER_IPS = [
   "196.207.55.12", "196.207.32.10", "196.207.128.50", "196.207.64.30",
@@ -252,14 +258,14 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.get("/api/search/:query", asyncHandler(handleSearch));
-app.get("/api/info/:movieId", asyncHandler(handleInfo));
-app.get("/api/search-suggest/:query", asyncHandler(handleSearchSuggest));
-app.get("/api/popular-searches", asyncHandler(handlePopularSearches));
-app.get("/api/recommend/:movieId", asyncHandler(handleRecommend));
-app.get("/api/sources/:movieId", asyncHandler(handleSources));
-app.get("/api/download/*", asyncHandler(handleDownload));
-app.get("/api/subtitles/*", asyncHandler(handleSubtitles));
+app.get("/api/search/:query", limitSearch, asyncHandler(handleSearch));
+app.get("/api/info/:movieId", limitMeta, asyncHandler(handleInfo));
+app.get("/api/search-suggest/:query", limitSuggest, asyncHandler(handleSearchSuggest));
+app.get("/api/popular-searches", limitMeta, asyncHandler(handlePopularSearches));
+app.get("/api/recommend/:movieId", limitMeta, asyncHandler(handleRecommend));
+app.get("/api/sources/:movieId", limitMeta, asyncHandler(handleSources));
+app.get("/api/download/*", limitStream, asyncHandler(handleDownload));
+app.get("/api/subtitles/*", limitStream, asyncHandler(handleSubtitles));
 
 app.use((req, res) => {
   res.set(CORS_HEADERS);
