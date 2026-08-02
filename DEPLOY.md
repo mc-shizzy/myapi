@@ -9,11 +9,20 @@
 
 Deploy the **repository root** (default). No subfolder needed.
 
-- **Start:** `npm start` → `proxy-server.js`
-- **Dockerfile:** `/Dockerfile` (optional)
+- **Start command:** `npm start` → `proxy-server.js` (do **not** use `npm run start:api`)
+- **Dockerfile:** `/Dockerfile` (recommended)
+- **Port:** app listens on `process.env.PORT` (Northflank injects this; default `8080` in Docker)
+- **Bind:** server must listen on `0.0.0.0` (already set in `proxy-server.js`)
 - **Env:**
-  - `PROXY_PUBLIC_URL=https://apii.freehandyflix.online`
+  - `PROXY_PUBLIC_URL=https://apii.freehandyflix.online` (or your `*.code.run` URL)
   - `API_KEY=<secret>` (same value on Worker + Northflank backend)
+
+### Northflank checklist (fix `503 Connection refused`)
+
+1. **Start command** = `npm start` or `node proxy-server.js`
+2. **Ports & DNS** → expose port **8080** (or match `PORT` env)
+3. **Logs** → you should see: `MovieBox stream proxy listening on http://0.0.0.0:8080`
+4. If logs show `EADDRINUSE` or crash → check start command / port conflict
 
 Test:
 

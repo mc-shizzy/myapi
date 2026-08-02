@@ -298,8 +298,10 @@ app.use((err, req, res, _next) => {
   return res.status(500).json({ status: "error", message: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`MovieBox stream proxy on http://localhost:${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+
+app.listen(PORT, HOST, () => {
+  console.log(`MovieBox stream proxy listening on http://${HOST}:${PORT}`);
   if (process.env.PROXY_PUBLIC_URL) {
     console.log(`Public URL: ${process.env.PROXY_PUBLIC_URL}`);
   }
