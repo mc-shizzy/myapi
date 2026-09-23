@@ -15,7 +15,7 @@ const app = express();
 app.set("trust proxy", true);
 const PORT = process.env.PORT || 7861;
 
-const FMOVIES_ORIGIN = "https://fmoviesunblocked.net";
+const FMOVIES_ORIGIN = "https://videodownloader.site";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -81,7 +81,8 @@ async function handleDownload(req, res) {
   const downloadUrl = decodeURIComponent(req.params[0]);
   if (
     !downloadUrl ||
-    (!downloadUrl.startsWith("https://bcdnxw.hakunaymatata.com/") &&
+    (!downloadUrl.startsWith("https://bcdnw.hakunaymatata.com/") &&
+      !downloadUrl.startsWith("https://bcdnxw.hakunaymatata.com/") &&
       !downloadUrl.startsWith("https://valiw.hakunaymatata.com/"))
   ) {
     res.set(CORS_HEADERS);
